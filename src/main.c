@@ -11,12 +11,11 @@
 #else
   #include <GL/gl.h>
   #include <GL/glu.h>
-  #include <GL/glut.h>
 #endif
 
 #define DIST_INF INT_MAX
 #define GRID_N 70
-#define TICK_RATE 1
+#define TICK_RATE 1000.0 / 1000.0
 
 struct vec {
   int x;
