@@ -1,12 +1,22 @@
-#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 #include <limits.h>
 #include <glib.h>
 
+#include <GL/freeglut.h>
+#ifdef __APPLE__
+  #include <OpenGL/gl.h>
+  #include <OpenGL/glu.h>
+#else
+  #include <GL/gl.h>
+  #include <GL/glu.h>
+  #include <GL/glut.h>
+#endif
+
 #define DIST_INF INT_MAX
-#define GRID_N 50
+#define GRID_N 70
+#define TICK_RATE 1
 
 struct vec {
   int x;
@@ -18,27 +28,145 @@ struct vec {
   struct vec *prev;
 };
 
+struct world {
+  unsigned long tick;
+  struct vec *cur, *start, *target;
+  struct vec grid[GRID_N * GRID_N];
+  GList *unvisited;
+};
+
+struct world W;
+
+/**
+ * Return -1 if a is closer than b to the initial position, 0 if they're equal,
+ * and 1 otherwise.
+ */
 gint cmp(gconstpointer a, gconstpointer b) {
-    const struct vec *x = a, *y = b;
-    return (x->dist < y->dist) ? -1 : (x->dist > y->dist);
+  const struct vec *x = a, *y = b;
+  return (x->dist < y->dist) ? -1 : (x->dist > y->dist);
 }
 
-int main() {
-  GList *unvisited;
-  struct vec grid[GRID_N * GRID_N];
-  struct vec *v, *start, *target, *cur, *neighbour;
+/**
+ * Render the world.
+ */
+void render() {
+  int x, y;
+  struct vec *cur;
+
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  glLoadIdentity();
+  glTranslatef(GRID_N * -0.5f, GRID_N * -0.5f, GRID_N * -1.25f);
+
+  glBegin(GL_QUADS);
+    for (y = 0; y < GRID_N; y++) {
+      for (x = 0; x < GRID_N; x++) {
+        cur = &W.grid[y * GRID_N + x];
+
+        if (W.target == cur) {
+          glColor3f(1.0f, 1.0f, 1.0f);
+        } else if (W.start == cur) {
+          glColor3f(0.0f, 1.0f, 0.0f);
+        } else if (cur->visited) {
+          glColor3f(0.5f, 0.0f, 0.0f);
+        } else if (cur->cost == DIST_INF) {
+          glColor3f(0.5f, 0.5f, 0.5f);
+        } else {
+          glColor3f(0.25f, 0.25f, 0.25f);
+        }
+
+        glVertex3f((cur->x + 1) * 1.0f, (cur->y    ) * 1.0f, -5.0f);
+        glVertex3f((cur->x    ) * 1.0f, (cur->y    ) * 1.0f, -5.0f);
+        glVertex3f((cur->x    ) * 1.0f, (cur->y + 1) * 1.0f, -5.0f);
+        glVertex3f((cur->x + 1) * 1.0f, (cur->y + 1) * 1.0f, -5.0f);
+      }
+    }
+  glEnd();
+
+  glutSwapBuffers();
+}
+
+/**
+ * Respond to a window resize.
+ */
+void resize(int w, int h) {
+  float ratio;
+
+  if (h == 0) {
+    h = 1;
+  }
+  ratio = w * 1.0 / h;
+
+  glMatrixMode(GL_PROJECTION);
+  glLoadIdentity();
+  glViewport(0, 0, w, h);
+  gluPerspective(45.0f, ratio, 0.1f, 100.0f);
+  glMatrixMode(GL_MODELVIEW);
+}
+
+/**
+ * Run the next step of Dijkstra's algorithm.
+ */
+void update(int tick) {
   struct vec *neighbours[4];
-  int x, y, i, new_dist;
+  struct vec *neighbour;
+  int i, new_dist;
 
-  srand(time(NULL));
+  printf("update: %d; cur: %d,%d\n", g_list_length(W.unvisited), W.cur->x, W.cur->y);
 
-  // Initialize the grid
+  neighbours[0] = W.cur->x - 1 >= 0     ? &W.grid[(W.cur->y * GRID_N)       + W.cur->x - 1] : NULL;
+  neighbours[1] = W.cur->x + 1 < GRID_N ? &W.grid[(W.cur->y * GRID_N)       + W.cur->x + 1] : NULL;
+  neighbours[2] = W.cur->y - 1 >= 0     ? &W.grid[((W.cur->y - 1) * GRID_N) + W.cur->x]     : NULL;
+  neighbours[3] = W.cur->y + 1 < GRID_N ? &W.grid[((W.cur->y + 1) * GRID_N) + W.cur->x]     : NULL;
+
+  for (i = 0; i < 4; i++) {
+    neighbour = neighbours[i];
+
+    if (neighbour != NULL && !neighbour->marked) {
+      if (g_list_find(W.unvisited, neighbour) == NULL) {
+        W.unvisited = g_list_prepend(W.unvisited, neighbour); // TODO Replace with an actual set
+      }
+
+      neighbour->marked = 1;
+      new_dist = W.cur->dist + neighbour->cost;
+
+      if (new_dist < neighbour->dist) {
+        neighbour->prev = W.cur;
+        neighbour->dist = new_dist;
+      }
+    }
+  }
+  W.cur->visited = 1;
+  W.cur->marked = 1;
+
+  W.unvisited = g_list_sort(W.unvisited, *cmp);
+
+  if (W.cur == W.target || W.unvisited == NULL) {
+    // Stop on found / exhausted all options
+    printf(W.cur == W.target ? "path found\n" : "no path found\n");
+
+    glutLeaveMainLoop();
+  } else {
+    W.cur = W.unvisited->data;
+    W.unvisited = g_list_remove(W.unvisited, W.unvisited->data);
+
+    glutPostRedisplay();
+    glutTimerFunc(TICK_RATE, update, tick + 1);
+  }
+}
+
+/**
+ * Initalize the world grid and select the initial and end nodes.
+ */
+void setup_world(struct world *world) {
+  struct vec *v;
+  int x, y;
+
   for (y = 0; y < GRID_N; y++) {
     for (x = 0; x < GRID_N; x++) {
-      v = &grid[y * GRID_N + x];
+      v = &W.grid[y * GRID_N + x];
       v->x = x;
       v->y = y;
-      v->cost = 1;
+      v->cost = rand() % 100 > 65 ? DIST_INF : 1;
       v->visited = 0;
       v->marked = 0;
       v->dist = DIST_INF;
@@ -46,66 +174,49 @@ int main() {
     }
   }
 
+  W.start = &W.grid[rand() % (GRID_N * GRID_N)];
+  W.target = &W.grid[rand() % (GRID_N * GRID_N)];
+
+  W.unvisited = NULL;
+  W.cur = W.start;
+  W.cur->cost = 0;
+  W.cur->dist = 0;
+}
+
+/**
+ * Initialize OpenGL.
+ */
+int setup_renderer(int *argc, char *argv[]) {
+  glutInit(argc, argv);
+  glutInitWindowSize(400, 400);
+  glutInitWindowPosition(-1, -1);
+  glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH);
+
+  return glutCreateWindow("Search");
+}
+
+/**
+ * Called on exit.
+ */
+void cleanup() {
+  g_list_free(W.unvisited);
+}
+
+int main(int argc, char *argv[]) {
   // Set initial state
-  start = &grid[rand() % (GRID_N * GRID_N)];
-  target = &grid[rand() % (GRID_N * GRID_N)];
-  unvisited = NULL;
-  cur = start;
-  cur->cost = 0;
-  cur->dist = 0;
+  srand(time(NULL));
 
-  while (1) {
-    neighbours[0] = cur->x - 1 >= 0     ? &grid[(cur->y * GRID_N)       + cur->x - 1] : NULL;
-    neighbours[1] = cur->x + 1 < GRID_N ? &grid[(cur->y * GRID_N)       + cur->x + 1] : NULL;
-    neighbours[2] = cur->y - 1 >= 0     ? &grid[((cur->y - 1) * GRID_N) + cur->x]     : NULL;
-    neighbours[3] = cur->y + 1 < GRID_N ? &grid[((cur->y + 1) * GRID_N) + cur->x]     : NULL;
+  setup_world(&W);
+  setup_renderer(&argc, argv);
 
-    for (i = 0; i < 4; i++) {
-      neighbour = neighbours[i];
+  glutDisplayFunc(render);
+  glutReshapeFunc(resize);
+  glutTimerFunc(TICK_RATE, update, 0);
 
-      if (neighbour != NULL && !neighbour->marked) {
-        neighbour->marked = 1;
+  glEnable(GL_DEPTH_TEST);
+  atexit(cleanup);
 
-        unvisited = g_list_prepend(unvisited, neighbour);
-        new_dist = cur->dist + neighbour->cost;
+  glutMainLoop();
 
-        if (new_dist < neighbour->dist) {
-          neighbour->prev = cur;
-          neighbour->dist = new_dist;
-        }
-      }
-      unvisited = g_list_sort(unvisited, *cmp);
-    }
-    cur->visited = 1;
-    cur->marked = 1;
-
-    // Print a map
-    // system("clear");
-    printf("cur=%d,%d; target=%d,%d, unvisited=%d\n", cur->x, cur->y, target->x, target->y, g_list_length(unvisited));
-    for (y = 0; y < GRID_N; y++) {
-      for (x = 0; x < GRID_N; x++) {
-        v = &grid[y * GRID_N + x];
-        if (v == target) {
-            printf("X");
-        } else if (v->dist == DIST_INF) {
-            printf("0");
-        } else {
-            printf("%d", v->dist);
-        }
-      }
-      printf("\n");
-    }
-    usleep(10000);
-
-    // Stop on found / exhausted all options
-    if (cur == target || unvisited == NULL) {
-      printf(cur == target ? "path found\n" : "no path found\n");
-      break;
-    }
-
-    cur = unvisited->data;
-    unvisited = g_list_remove(unvisited, unvisited->data);
-  }
-
-  g_list_free(unvisited);
+  return 0;
 }

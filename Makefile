@@ -4,8 +4,8 @@ OBJ_F=obj/
 
 CC=gcc
 PROJECT=search
-LFLAGS=-lm `pkg-config --libs glib-2.0`
-CFLAGS=-Wall -g -I$(INC_F) `pkg-config --cflags glib-2.0`
+LFLAGS=-lm `pkg-config --libs glib-2.0 freeglut gl glu`
+CFLAGS=-Wall -g -I$(INC_F) `pkg-config --cflags glib-2.0 freeglut gl glu`
 OBJS=$(patsubst $(SRC_F)%.c,$(OBJ_F)%.o,$(wildcard $(SRC_F)*.c))
 
 all: $(OBJS)
