@@ -162,7 +162,7 @@ void setup_world(struct world *world) {
 
   for (y = 0; y < GRID_N; y++) {
     for (x = 0; x < GRID_N; x++) {
-      v = &W.grid[y * GRID_N + x];
+      v = &world->grid[y * GRID_N + x];
       v->x = x;
       v->y = y;
       v->cost = rand() % 100 > 65 ? DIST_INF : 1;
@@ -173,13 +173,13 @@ void setup_world(struct world *world) {
     }
   }
 
-  W.start = &W.grid[rand() % (GRID_N * GRID_N)];
-  W.target = &W.grid[rand() % (GRID_N * GRID_N)];
+  world->start = &world->grid[rand() % (GRID_N * GRID_N)];
+  world->target = &world->grid[rand() % (GRID_N * GRID_N)];
 
-  W.unvisited = NULL;
-  W.cur = W.start;
-  W.cur->cost = 0;
-  W.cur->dist = 0;
+  world->unvisited = NULL;
+  world->cur = world->start;
+  world->cur->cost = 0;
+  world->cur->dist = 0;
 }
 
 /**

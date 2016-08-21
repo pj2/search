@@ -1,9 +1,9 @@
 # search
 
-Dijkstra's algorithm visualization. Tested on Mac.
+Dijkstra's algorithm visualization. Tested on OSX.
 
 Requires:
-* X, https://www.xquartz.org
+* X (install https://www.xquartz.org on OSX)
 * freeglut
 * opengl
 * openglu
